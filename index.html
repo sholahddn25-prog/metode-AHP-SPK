@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="id" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoAHP · Intelligent Decision Support System</title>
+  <meta name="description" content="Sistem Pendukung Keputusan Analytic Hierarchy Process (AHP Saaty) - Pemilihan Mobil Armada Keluarga. Dibangun dengan FastAPI + NumPy + Three.js." />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <!-- Mukta — the typeface used by the Spider-Man reference design -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Mukta:wght@300;400;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='84' font-size='84'>🕷️</text></svg>" />
+</head>
+<body>
+
+  <!-- 3D cursor overlay (Three.js) -->
+  <canvas id="cursor-canvas" aria-hidden="true"></canvas>
+
+  <!-- ================= Header ================= -->
+  <header class="app-header glass">
+    <div class="brand" data-magnetic>
+      <span class="brand-mark">◆</span>
+      <div class="brand-text">
+        <h1>AutoAHP</h1>
+        <p>Intelligent Decision Support System · Saaty</p>
+      </div>
+    </div>
+
+    <nav class="tab-nav" role="tablist" aria-label="Navigasi dashboard">
+      <button class="tab-btn active" role="tab" data-tab="dashboard" data-magnetic>Dashboard</button>
+      <button class="tab-btn" role="tab" data-tab="criteria" data-magnetic>Matriks Kriteria</button>
+      <button class="tab-btn" role="tab" data-tab="alternatives" data-magnetic>Evaluasi Alternatif</button>
+      <button class="tab-btn" role="tab" data-tab="consistency" data-magnetic>Lab Konsistensi</button>
+      <button class="tab-btn" role="tab" data-tab="report" data-magnetic>Laporan Akhir</button>
+      <button class="tab-btn" role="tab" data-tab="settings" data-magnetic>Pengaturan</button>
+    </nav>
+
+    <div class="header-status">
+      <span id="api-status" class="status-pill checking" title="Status koneksi backend">● memeriksa…</span>
+      <button id="btn-docs" class="icon-btn" data-magnetic title="Dokumentasi ilmiah AHP">ⓘ</button>
+      <button id="theme-toggle" class="icon-btn" data-magnetic title="Ganti tema">☾</button>
+    </div>
+  </header>
+
+  <main class="app-main">
+
+    <!-- ============== 1. Dashboard Executive Overview ============== -->
+    <section id="tab-dashboard" class="tab-panel active" role="tabpanel">
+      <div class="hero glass" data-magnetic>
+        <div class="hero-text">
+          <span class="eyebrow">Studi Kasus</span>
+          <h2>Pemilihan Mobil Armada Keluarga <em>(MPV Family Fleet)</em></h2>
+          <p>Perbandingan berpasangan 3 kriteria — <strong>Style</strong>, <strong>Keandalan</strong>, <strong>Konsumsi BB</strong> — dinilai terhadap 4 alternatif dengan metode Analytic Hierarchy Process.</p>
+        </div>
+        <div class="winner-card" id="winner-card">
+          <span class="winner-label">Rekomendasi Utama</span>
+          <span class="winner-name" id="winner-name">—</span>
+          <span class="winner-score" id="winner-score">0%</span>
+          <div class="winner-bar"><span id="winner-bar-fill"></span></div>
+        </div>
+      </div>
+
+      <div class="kpi-grid" id="kpi-grid"><!-- KPI cards injected by app.js --></div>
+
+      <div class="grid-2">
+        <div class="panel glass" data-magnetic>
+          <h3>Komposisi Bobot Kriteria</h3>
+          <p class="panel-sub">Kontribusi relatif S, K, B terhadap keputusan</p>
+          <div class="chart-wrap"><canvas id="chart-doughnut"></canvas></div>
+        </div>
+        <div class="panel glass" data-magnetic>
+          <h3>Peringkat Skor Global</h3>
+          <p class="panel-sub">Hasil sintesis P<sub>i</sub> = Σ w<sub>j</sub> · s<sub>ij</sub></p>
+          <div class="ranking-list" id="ranking-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============== 2. Criteria Pairwise Matrix ============== -->
+    <section id="tab-criteria" class="tab-panel" role="tabpanel">
+      <div class="panel glass" data-magnetic>
+        <h3>Matriks Perbandingan Kriteria (3×3)</h3>
+        <p class="panel-sub">Isi sel <em>di atas diagonal</em>. Sel resiprokal (1/x) dan diagonal (1) diperbarui otomatis. Skala Saaty 1/9 – 9.</p>
+        <div class="matrix-wrap" id="criteria-matrix"></div>
+        <div class="matrix-actions">
+          <button class="btn ghost" id="btn-reset-criteria">↺ Reset ke Default</button>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="panel glass" data-magnetic>
+          <h3>Bobot Prioritas Kriteria</h3>
+          <p class="panel-sub">Eigenvector normalisasi kolom</p>
+          <div class="weight-bars" id="criteria-weights"></div>
+        </div>
+        <div class="panel glass" data-magnetic>
+          <h3>Indikator Konsistensi</h3>
+          <p class="panel-sub">λ<sub>max</sub>, CI, CR matriks kriteria</p>
+          <div class="stat-rows" id="criteria-stats"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============== 3. Alternative Pairwise Evaluation ============== -->
+    <section id="tab-alternatives" class="tab-panel" role="tabpanel">
+      <div class="panel glass" data-magnetic>
+        <div class="panel-head">
+          <div>
+            <h3>Evaluasi Berpasangan Alternatif (4×4)</h3>
+            <p class="panel-sub">Bandingkan 4 mobil pada setiap kriteria. Edit sel di atas diagonal.</p>
+          </div>
+          <div class="sub-tabs" id="criteria-subtabs"></div>
+        </div>
+        <div class="matrix-wrap" id="alt-matrix"></div>
+        <div class="matrix-actions">
+          <span class="cr-badge" id="alt-cr-badge">CR —</span>
+          <button class="btn ghost" id="btn-reset-alt">↺ Reset Kriteria Ini</button>
+        </div>
+      </div>
+
+      <div class="panel glass" data-magnetic>
+        <h3>Bobot Lokal — <span id="alt-criterion-name">—</span></h3>
+        <p class="panel-sub">Bobot prioritas alternatif di bawah kriteria terpilih</p>
+        <div class="weight-bars" id="alt-weights"></div>
+      </div>
+    </section>
+
+    <!-- ============== 4. Consistency & Sensitivity Lab ============== -->
+    <section id="tab-consistency" class="tab-panel" role="tabpanel">
+      <div class="grid-2">
+        <div class="panel glass" data-magnetic>
+          <h3>Gauge Konsistensi (CR)</h3>
+          <p class="panel-sub">Rasio konsistensi matriks kriteria vs ambang batas</p>
+          <canvas id="cr-gauge" width="320" height="200"></canvas>
+          <div class="gauge-legend" id="gauge-legend"></div>
+        </div>
+        <div class="panel glass" data-magnetic>
+          <h3>Ringkasan Konsistensi Semua Matriks</h3>
+          <p class="panel-sub">CR setiap matriks harus &lt; ambang batas agar valid</p>
+          <div class="stat-table-wrap">
+            <table class="stat-table" id="consistency-table">
+              <thead><tr><th>Matriks</th><th>Order</th><th>λ<sub>max</sub></th><th>CI</th><th>RI</th><th>CR</th><th>Status</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel glass" data-magnetic>
+        <h3>Bukti Matematis Langkah-demi-Langkah</h3>
+        <p class="panel-sub">Normalisasi kolom → rata-rata baris → (A·w)/w → λ<sub>max</sub> → CI → CR</p>
+        <div id="proof-steps" class="proof-steps"></div>
+      </div>
+
+      <div class="panel glass" data-magnetic>
+        <h3>Laboratorium Sensitivitas</h3>
+        <p class="panel-sub">Geser bobot <strong>Keandalan</strong> untuk mensimulasikan perubahan preferensi; bobot lain dinormalisasi ulang otomatis.</p>
+        <div class="sensitivity" id="sensitivity-lab">
+          <label for="sens-slider">Bobot Keandalan: <strong id="sens-value">55.71%</strong></label>
+          <input type="range" id="sens-slider" min="5" max="90" step="0.5" value="55.71" />
+          <div class="sens-result" id="sens-result"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============== 5. Executive Final Report ============== -->
+    <section id="tab-report" class="tab-panel" role="tabpanel">
+      <div class="panel glass report-print" data-magnetic>
+        <div class="panel-head">
+          <div>
+            <h3>Laporan Eksekutif — Sintesis Global</h3>
+            <p class="panel-sub">Dekomposisi kontribusi kriteria terhadap skor akhir setiap alternatif</p>
+          </div>
+          <div class="report-actions no-print">
+            <button class="btn" id="btn-export-csv" data-magnetic>⬇ CSV</button>
+            <button class="btn" id="btn-export-json" data-magnetic>⬇ JSON</button>
+            <button class="btn primary" id="btn-print" data-magnetic>🖨 Print PDF</button>
+          </div>
+        </div>
+        <div class="chart-wrap tall"><canvas id="chart-stacked"></canvas></div>
+      </div>
+
+      <div class="panel glass report-print" data-magnetic>
+        <h3>Tabel Skor Sintesis Global</h3>
+        <div class="stat-table-wrap">
+          <table class="stat-table" id="synthesis-table">
+            <thead><tr><th>#</th><th>Alternatif</th><th>Skor Global</th><th>Keandalan</th><th>Style</th><th>Konsumsi BB</th><th>Rekomendasi</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="verdict" id="report-verdict"></p>
+      </div>
+    </section>
+
+    <!-- ============== 6. Settings ============== -->
+    <section id="tab-settings" class="tab-panel" role="tabpanel">
+      <div class="panel glass" data-magnetic>
+        <h3>Pengaturan Aplikasi</h3>
+        <p class="panel-sub">Preferensi disimpan di peramban Anda (localStorage).</p>
+
+        <div class="setting-row">
+          <div>
+            <strong>Tema Antarmuka</strong>
+            <p>Mode gelap / terang</p>
+          </div>
+          <div class="segmented" id="theme-segmented">
+            <button data-theme-set="dark">Gelap</button>
+            <button data-theme-set="light">Terang</button>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div>
+            <strong>Ambang Batas CR</strong>
+            <p>CR &lt; ambang → matriks dianggap konsisten (Saaty: 0.10)</p>
+          </div>
+          <input type="number" id="setting-threshold" min="0.01" max="0.5" step="0.01" value="0.10" />
+        </div>
+
+        <div class="setting-row">
+          <div>
+            <strong>Metode Kalkulasi Bobot</strong>
+            <p>Normalisasi kolom (rata-rata baris) atau akar ke-n perkalian baris</p>
+          </div>
+          <select id="setting-method">
+            <option value="column_sum">Column Sum (Normalisasi Kolom)</option>
+            <option value="geometric_mean">Geometric Mean (Akar ke-n)</option>
+          </select>
+        </div>
+
+        <div class="setting-row">
+          <div>
+            <strong>Cursor 3D (Three.js)</strong>
+            <p>Animasi partikel mengikuti kursor</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setting-cursor" checked />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-row">
+          <div>
+            <strong>Animasi Reduksi Gerak</strong>
+            <p>Ikuti preferensi aksesibilitas sistem</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="setting-reduce-motion" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-row">
+          <div>
+            <strong>Reset Total</strong>
+            <p>Kembalikan seluruh matriks ke studi kasus default</p>
+          </div>
+          <button class="btn danger" id="btn-reset-all">⟲ Reset Semua</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer glass">
+    <p>AutoAHP · Analytic Hierarchy Process Engine — FastAPI · NumPy · Three.js · Chart.js</p>
+    <p class="copyright">copyright by sholahddn25</p>
+  </footer>
+
+  <!-- Documentation modal -->
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-card glass">
+      <div class="modal-head">
+        <h3 id="modal-title">Dokumentasi Ilmiah — AHP (Saaty)</h3>
+        <button class="icon-btn" data-close aria-label="Tutup">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Toasts -->
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <!-- Chart.js (UMD) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!-- Three.js (global build) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <script src="cursor3d.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
